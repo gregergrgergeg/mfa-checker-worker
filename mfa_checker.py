@@ -31,8 +31,8 @@ PROXY_CONFIG = {
 }
 EMAILS_FILE = "emails.txt"
 RESULTS_FILE = "results.json"
-MIN_DELAY_SECONDS = 3.0  # Increased min delay
-MAX_DELAY_SECONDS = 6.0  # Increased max delay
+MIN_DELAY_SECONDS = 5.0  # Increased min delay
+MAX_DELAY_SECONDS = 10.0 # Increased max delay
 # ==============================================================================
 
 def run_browser_session(emails_to_process, all_results, total_emails):
@@ -42,40 +42,57 @@ def run_browser_session(emails_to_process, all_results, total_emails):
 
     try:
         print("\n" + "="*70, flush=True)
-        print("INITIALIZING PROXY-AWARE HEADLESS SESSION...", flush=True)
+        print("INITIALIZING NEW STEALTH SESSION...", flush=True)
         print("="*70, flush=True)
 
         proxy_str = f"socks5://{PROXY_CONFIG['user']}:{PROXY_CONFIG['pass']}@{PROXY_CONFIG['host']}:{PROXY_CONFIG['port']}"
         seleniumwire_options = {
             'proxy': { 'http': proxy_str, 'https': proxy_str, 'no_proxy': 'localhost,127.0.0.1' },
             'verify_ssl': False,
-            'connection_timeout': 30 # Timeout for proxy connection
+            'connection_timeout': 45
         }
 
         chrome_options = uc.ChromeOptions()
         chrome_options.add_argument('--headless=new')
         chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-gpu')
         chrome_options.add_argument('--disable-dev-shm-usage')
         chrome_options.add_argument('--window-size=1920,1080')
-        # This is a key argument to prevent bot detection
+        # More aggressive evasion options
         chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+        chrome_options.add_argument("--disable-infobars")
+        chrome_options.add_argument("--disable-popup-blocking")
+        chrome_options.add_argument("--disable-extensions")
         chrome_options.add_argument(f'--user-agent={UserAgent().random}')
         
         driver = uc.Chrome(options=chrome_options, seleniumwire_options=seleniumwire_options, user_data_dir=user_data_dir)
-        driver.set_page_load_timeout(60) # Increased page load timeout
+        driver.set_page_load_timeout(90) # Generous 90 second page load timeout
 
         target_url = 'https://www.epicgames.com/id/login'
         print(f"Navigating to: {target_url}", flush=True)
         driver.get(target_url)
 
-        try:
-            # Increased wait time to 60 seconds for slower connections
-            WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.ID, "email")))
-            print("✓ Login page loaded successfully. Session is clean.", flush=True)
-            xsrf_token = driver.get_cookie('XSRF-TOKEN')['value']
-        except TimeoutException:
-            print("! CAPTCHA or page load failure. Session will be regenerated.", flush=True)
-            return 0, True
+        # --- NEW REFRESH LOGIC ---
+        login_page_loaded = False
+        for attempt in range(3): # Try to load the page up to 3 times (1 initial + 2 refreshes)
+            try:
+                # Wait up to 60 seconds for the email field to appear
+                WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.ID, "email")))
+                print("✓ Login page loaded successfully. Session is clean.", flush=True)
+                login_page_loaded = True
+                break # Exit the loop if successful
+            except TimeoutException:
+                if attempt < 2:
+                    print(f"! Page load timed out on attempt {attempt + 1}. Refreshing and trying again...", flush=True)
+                    time.sleep(5 + random.uniform(1, 4)) # Wait a bit before refresh
+                    driver.refresh()
+                else:
+                    print("! CAPTCHA or page load failure after multiple retries. Regenerating entire session.", flush=True)
+        
+        if not login_page_loaded:
+            return 0, True # Signal to main loop to create a new session
+
+        xsrf_token = driver.get_cookie('XSRF-TOKEN')['value']
 
         for i, email in enumerate(emails_to_process):
             current_progress = len(all_results) + i + 1
@@ -94,7 +111,7 @@ def run_browser_session(emails_to_process, all_results, total_emails):
             api_result = driver.execute_script(script)
 
             if 'mfaEligible' not in api_result:
-                print(f"-> SESSION ERROR: {api_result.get('errorMessage', str(api_result))}. Regenerating session.", flush=True)
+                print(f"-> SESSION ERROR: {api_result.get('errorMessage', str(api_result))}. API block detected. Regenerating session.", flush=True)
                 session_failed = True
                 break
             else:
@@ -109,6 +126,7 @@ def run_browser_session(emails_to_process, all_results, total_emails):
         
     finally:
         if driver:
+            print("Quitting browser session to ensure clean state for next run.", flush=True)
             driver.quit()
     
     return len(emails_to_process) if not session_failed else 0, session_failed
@@ -138,7 +156,7 @@ def main():
             print("\nAll emails processed successfully!", flush=True); break
         
         if session_failed:
-            print("Pausing for 15 seconds before starting a new session...", flush=True); time.sleep(15)
+            print("Pausing for 20 seconds before starting a new session...", flush=True); time.sleep(20)
 
 if __name__ == '__main__':
     main()
