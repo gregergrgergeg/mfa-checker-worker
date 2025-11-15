@@ -1,5 +1,9 @@
 #!/bin/sh
 
+# === NEW: Exit immediately if a command fails. ===
+set -e
+# ===============================================
+
 # This script will run every time the service starts.
 
 # Step 1: Force install the python libraries from requirements.txt
