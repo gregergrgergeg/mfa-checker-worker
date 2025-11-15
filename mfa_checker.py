@@ -8,22 +8,18 @@ import random
 
 # --- Start of Critical Diagnostic and Import Section ---
 print("--- Starting Python script execution ---")
-print(f"Python executable: {sys.executable}")
-print(f"Python version: {sys.version}")
-
 try:
     print("--- Attempting to import libraries ---")
     from selenium.webdriver.common.by import By
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
     from selenium.common.exceptions import TimeoutException
-    # Use the correct import for selenium-wire with undetected_chromedriver
+    # This is the correct import for the proxy-capable library
     from seleniumwire import undetected_chromedriver as uc
     print("✓ All libraries imported successfully.")
 except ImportError as e:
     print(f"FATAL: A critical library import failed. Error: {e}")
     sys.exit(1)
-# --- End of Critical Diagnostic and Import Section ---
 
 # ==============================================================================
 # SCRIPT CONFIGURATION
@@ -41,23 +37,25 @@ MAX_DELAY_SECONDS = 4.0
 # ==============================================================================
 
 def run_browser_session(emails_to_process, all_results, total_emails):
-    """
-    Manages a single, fully automated headless browser session.
-    """
     driver = None
     session_failed = False
-    processed_count = 0
-    # Create a temporary directory that will be cleaned up automatically
     user_data_dir = tempfile.mkdtemp()
 
     try:
         print("\n" + "="*70)
-        print("INITIALIZING RENDER-COMPATIBLE HEADLESS SESSION...")
+        print("INITIALIZING PROXY-AWARE HEADLESS SESSION...")
         print("="*70)
 
-        # This is the correct proxy format for selenium-wire
+        # Correct proxy format for selenium-wire with SOCKS5 authentication
         proxy_str = f"socks5://{PROXY_CONFIG['user']}:{PROXY_CONFIG['pass']}@{PROXY_CONFIG['host']}:{PROXY_CONFIG['port']}"
-        seleniumwire_options = {'proxy': {'http': proxy_str, 'https': proxy_str}, 'verify_ssl': False}
+        seleniumwire_options = {
+            'proxy': {
+                'http': proxy_str,
+                'https': proxy_str,
+                'no_proxy': 'localhost,127.0.0.1'
+            },
+            'verify_ssl': False
+        }
 
         chrome_options = uc.ChromeOptions()
         chrome_options.add_argument('--headless=new')
@@ -66,7 +64,7 @@ def run_browser_session(emails_to_process, all_results, total_emails):
         chrome_options.add_argument('--window-size=1920,1080')
         chrome_options.add_argument(f'--user-agent={UserAgent().random}')
         
-        # Use undetected_chromedriver with selenium-wire options
+        # Use undetected_chromedriver with the correct selenium-wire options
         driver = uc.Chrome(
             options=chrome_options,
             seleniumwire_options=seleniumwire_options,
@@ -79,10 +77,10 @@ def run_browser_session(emails_to_process, all_results, total_emails):
 
         try:
             WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.ID, "email")))
-            print("✓ NO CAPTCHA DETECTED. Session is clean.")
+            print("✓ Login page loaded successfully. Session is clean.")
             xsrf_token = driver.get_cookie('XSRF-TOKEN')['value']
         except TimeoutException:
-            print("! CAPTCHA DETECTED. Headless mode failed. This session will be regenerated automatically.")
+            print("! CAPTCHA or page load failure. Session will be regenerated.")
             return 0, True
 
         for i, email in enumerate(emails_to_process):
@@ -108,7 +106,6 @@ def run_browser_session(emails_to_process, all_results, total_emails):
             else:
                 print(f"-> Result: {json.dumps(api_result)}")
                 all_results.append({"email": email, "result": api_result})
-                processed_count += 1
             
             time.sleep(random.uniform(MIN_DELAY_SECONDS, MAX_DELAY_SECONDS))
 
@@ -120,7 +117,7 @@ def run_browser_session(emails_to_process, all_results, total_emails):
         if driver:
             driver.quit()
     
-    return processed_count, session_failed
+    return len(emails_to_process) if not session_failed else 0, session_failed
 
 def main():
     if not os.path.exists(EMAILS_FILE):
@@ -137,7 +134,7 @@ def main():
         remaining_emails = master_email_list[len(all_results):]
         print("\n" + "#"*70 + f"\nSTARTING BATCH RUN. {len(all_results)} done, {len(remaining_emails)} remaining.\n" + "#"*70)
         
-        processed_in_session, session_failed = run_browser_session(remaining_emails, all_results, total_to_process)
+        processed, session_failed = run_browser_session(remaining_emails, all_results, total_to_process)
         
         if all_results:
             with open(RESULTS_FILE, 'w') as f: json.dump(all_results, f, indent=2)
