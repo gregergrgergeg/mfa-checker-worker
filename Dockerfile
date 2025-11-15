@@ -4,16 +4,23 @@ FROM python:3.11-slim
 # Set the working directory in the container
 WORKDIR /app
 
-# Install system dependencies for Chrome and undetected-chromedriver
+# Install system dependencies for Chrome using the modern key management method
 RUN apt-get update && apt-get install -y \
-    gnupg \
     wget \
+    gnupg \
+    ca-certificates \
     --no-install-recommends \
-    && wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - \
-    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list \
+    # Create the keyrings directory
+    && mkdir -p /etc/apt/keyrings \
+    # Download the Google signing key and save it in the correct location
+    && wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /etc/apt/keyrings/google-chrome.gpg \
+    # Add the Google Chrome repository, specifying the signed-by key
+    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list \
+    # Update apt lists and install Chrome
     && apt-get update && apt-get install -y \
     google-chrome-stable \
     --no-install-recommends \
+    # Clean up installation files
     && apt-get purge -y gnupg wget \
     && rm -rf /var/lib/apt/lists/*
 
