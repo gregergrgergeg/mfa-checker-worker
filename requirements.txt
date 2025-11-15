@@ -1,0 +1,4 @@
+selenium-wire
+undetected-chromedriver==3.5.5
+pysocks
+fake-useragent
