@@ -1,4 +1,4 @@
 selenium-wire
 pysocks
 fake-useragent
-selenium-stealth
+undetected-chromedriver==3.5.5
