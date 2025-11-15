@@ -27,8 +27,12 @@ RUN apt-get update && apt-get install -y \
 # Copy the requirements file into the container
 COPY requirements.txt .
 
-# Install any needed packages specified in requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+# --- NEW: Make the Python installation more robust ---
+# 1. Upgrade pip to the latest version.
+# 2. Install from requirements.txt with the --verbose flag for better logs.
+RUN python -m pip install --upgrade pip
+RUN pip install --no-cache-dir --verbose -r requirements.txt
+# --- END NEW ---
 
 # Copy the rest of the application's code into the container
 COPY . .
