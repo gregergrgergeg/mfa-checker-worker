@@ -2,3 +2,4 @@ selenium-wire
 pysocks
 fake-useragent
 undetected-chromedriver==3.5.5
+blinker==1.7.0
