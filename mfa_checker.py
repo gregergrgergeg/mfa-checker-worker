@@ -31,8 +31,8 @@ PROXY_CONFIG = {
 }
 EMAILS_FILE = "emails.txt"
 RESULTS_FILE = "results.json"
-MIN_DELAY_SECONDS = 2.0
-MAX_DELAY_SECONDS = 4.0
+MIN_DELAY_SECONDS = 3.0  # Increased min delay
+MAX_DELAY_SECONDS = 6.0  # Increased max delay
 # ==============================================================================
 
 def run_browser_session(emails_to_process, all_results, total_emails):
@@ -48,7 +48,8 @@ def run_browser_session(emails_to_process, all_results, total_emails):
         proxy_str = f"socks5://{PROXY_CONFIG['user']}:{PROXY_CONFIG['pass']}@{PROXY_CONFIG['host']}:{PROXY_CONFIG['port']}"
         seleniumwire_options = {
             'proxy': { 'http': proxy_str, 'https': proxy_str, 'no_proxy': 'localhost,127.0.0.1' },
-            'verify_ssl': False
+            'verify_ssl': False,
+            'connection_timeout': 30 # Timeout for proxy connection
         }
 
         chrome_options = uc.ChromeOptions()
@@ -56,16 +57,20 @@ def run_browser_session(emails_to_process, all_results, total_emails):
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
         chrome_options.add_argument('--window-size=1920,1080')
+        # This is a key argument to prevent bot detection
+        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
         chrome_options.add_argument(f'--user-agent={UserAgent().random}')
         
         driver = uc.Chrome(options=chrome_options, seleniumwire_options=seleniumwire_options, user_data_dir=user_data_dir)
+        driver.set_page_load_timeout(60) # Increased page load timeout
 
         target_url = 'https://www.epicgames.com/id/login'
         print(f"Navigating to: {target_url}", flush=True)
         driver.get(target_url)
 
         try:
-            WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.ID, "email")))
+            # Increased wait time to 60 seconds for slower connections
+            WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.ID, "email")))
             print("✓ Login page loaded successfully. Session is clean.", flush=True)
             xsrf_token = driver.get_cookie('XSRF-TOKEN')['value']
         except TimeoutException:
